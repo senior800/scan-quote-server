@@ -71,18 +71,30 @@ def _log(msg):
 
 
 def _ensure_type(json_path, work_dir, type_value, out_name):
-    """If a preset JSON is missing its top-level "type" field, write a patched copy
-    with it added and return that path instead. Leaves already-proper preset files
-    (which already have "type") completely untouched. See the comment where this is
-    called for why this is needed."""
+    """Ensure a preset JSON has its top-level "type" field, AND that no list-valued
+    field is left genuinely empty (`[]`) — write a patched copy if either needed,
+    else leave an already-proper file completely untouched.
+
+    Empty arrays are a real, repeat crash source: OrcaSlicer's CLI does an internal
+    "split settings across N slots/variants" pass over these files, and pulling a
+    value from an empty array throws a hard C++ abort (ConfigOptionVector::set_at:
+    "Assigning from an empty vector" — confirmed 2026-07-01 on a real H2S export).
+    We deliberately do NOT touch fields with >1 entries here (those are genuinely
+    meaningful, e.g. the H2S's two nozzle variants) — only fields with ZERO entries,
+    which can only ever have been useless to the CLI anyway."""
     try:
         with open(json_path) as f:
             data = json.load(f)
     except Exception:
         return json_path  # unreadable — let the CLI raise its own (more specific) error
-    if "type" in data:
+    changed = "type" not in data
+    data["type"] = data.get("type", type_value)
+    for k, v in list(data.items()):
+        if isinstance(v, list) and len(v) == 0:
+            data[k] = [""]
+            changed = True
+    if not changed:
         return json_path
-    data["type"] = type_value
     out_path = os.path.join(work_dir, out_name)
     with open(out_path, "w") as f:
         json.dump(data, f)
@@ -189,6 +201,9 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
             proc.setdefault("type", "process")   # same missing-type issue as the printer file
             if printer_ident:
                 proc["compatible_printers"] = [printer_ident]
+            for k, v in list(proc.items()):       # same empty-array crash risk as printer.json
+                if isinstance(v, list) and len(v) == 0:
+                    proc[k] = [""]
             proc_path = os.path.join(work, "process.json")
             with open(proc_path, "w") as f:
                 json.dump(proc, f)
