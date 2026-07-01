@@ -76,38 +76,43 @@ def _log(msg):
     print("[slice] " + msg, flush=True)
 
 
-def _drop_empty_arrays(data):
-    """Remove every key whose value is an empty array (`[]`), in place; return
-    True if anything was removed.
+def _drop_empty_values(data):
+    """Remove every key whose value is an empty array (`[]`) OR an empty string
+    (`""`), in place; return True if anything was removed.
 
-    Empty arrays are THE repeat crash source. OrcaSlicer's CLI does an internal
+    Empty values are THE repeat crash source. OrcaSlicer's CLI does an internal
     "split settings across N filament slots / nozzle variants" pass, and for every
-    array-valued setting it calls `ConfigOptionVector::set_at(src, i, 0)`, which
-    reads `src[0]` — an empty array makes that a hard C++ abort
-    (`ConfigOptionVector::set_at(): Assigning from an empty vector`, SIGABRT —
-    confirmed against the v2.4.1 source, src/OrcaSlicer.cpp ~line 3300, on a real
-    H2S export 2026-07-01).
+    list-valued setting it calls `ConfigOptionVector::set_at(src, i, 0)`, which
+    reads `src[0]` — an empty source vector makes that a hard C++ abort
+    (`ConfigOptionVector::set_at(): Assigning from an empty vector`, SIGABRT).
+    Confirmed via a real gdb backtrace on a real H2S export (2026-07-01): the
+    crashing field was `filament_notes`, which is internally a STRING-LIST
+    (`coStrings`) but was exported as a bare `""` — and OrcaSlicer loads an empty
+    string into a list-typed field as an EMPTY list, i.e. the exact empty vector
+    set_at chokes on. So `""` is just as dangerous as `[]` for any list-typed key,
+    and since we can't know a key's type from the JSON alone, we treat both the
+    same.
 
-    We DELETE such keys rather than fill them with a placeholder. An empty array
+    We DELETE such keys rather than fill them with a placeholder. An empty value
     carries no data anyway, and deleting it makes OrcaSlicer instantiate its own
-    built-in default for that key (guaranteed non-empty AND correctly typed).
-    A previous version filled them with `[""]` instead — that was actively wrong:
-    for a NUMERIC setting the empty string `""` deserializes back to *zero* numbers,
-    i.e. an empty vector again, so the identical crash persisted unchanged (this is
-    exactly why several redeploys produced byte-for-byte identical crash logs).
-    We deliberately never touch arrays that already have >=1 entry — those are real
-    data (e.g. the H2S's two genuine nozzle variants)."""
+    built-in default for that key (guaranteed correctly sized AND typed).
+    An earlier version filled empty ARRAYS with `[""]` — that was useless: for a
+    numeric field the `""` deserializes back to zero numbers (empty vector again),
+    and it never even addressed the `""`-scalar form that was the real culprit,
+    which is why several redeploys produced byte-for-byte identical crash logs.
+    We deliberately never touch a list that already has >=1 entry (e.g. `["nil"]`
+    or the H2S's two genuine nozzle variants) — those are real data."""
     removed = False
     for k, v in list(data.items()):
-        if isinstance(v, list) and len(v) == 0:
+        if (isinstance(v, list) and len(v) == 0) or (isinstance(v, str) and v == ""):
             del data[k]
             removed = True
     return removed
 
 
 def _ensure_type(json_path, work_dir, type_value, out_name):
-    """Ensure a preset JSON has its top-level "type" field and no empty-array
-    fields (see _drop_empty_arrays for why) — write a patched copy if either was
+    """Ensure a preset JSON has its top-level "type" field and no empty-value
+    fields (see _drop_empty_values for why) — write a patched copy if either was
     needed, else leave an already-proper file completely untouched."""
     try:
         with open(json_path) as f:
@@ -116,7 +121,7 @@ def _ensure_type(json_path, work_dir, type_value, out_name):
         return json_path  # unreadable — let the CLI raise its own (more specific) error
     changed = "type" not in data
     data["type"] = data.get("type", type_value)
-    if _drop_empty_arrays(data):
+    if _drop_empty_values(data):
         changed = True
     if not changed:
         return json_path
@@ -128,8 +133,8 @@ def _ensure_type(json_path, work_dir, type_value, out_name):
 
 def _force_single_filament(json_path, work_dir, out_name, printer_ident=None):
     """Normalize a filament preset so a single-material CLI slice can't crash on it:
-    truncate any >1-entry list to its first element, DELETE any empty list (see
-    _drop_empty_arrays), ensure "type" is set, and (if given) point its
+    truncate any >1-entry list to its first element, DELETE any empty value (see
+    _drop_empty_values), ensure "type" is set, and (if given) point its
     "compatible_printers" at our actual printer rather than whatever it was
     originally calibrated against.
 
@@ -150,7 +155,7 @@ def _force_single_filament(json_path, work_dir, out_name, printer_ident=None):
         if isinstance(v, list) and len(v) > 1:
             data[k] = v[:1]
             changed = True
-    if _drop_empty_arrays(data):   # empty arrays crash set_at — delete, don't placeholder
+    if _drop_empty_values(data):   # empty arrays/strings crash set_at — delete, don't placeholder
         changed = True
     if printer_ident:
         data["compatible_printers"] = [printer_ident]
@@ -223,7 +228,7 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
             proc.setdefault("type", "process")   # same missing-type issue as the printer file
             if printer_ident:
                 proc["compatible_printers"] = [printer_ident]
-            _drop_empty_arrays(proc)              # same empty-array crash risk as the other files
+            _drop_empty_values(proc)              # same empty-value crash risk as the other files
             proc_path = os.path.join(work, "process.json")
             with open(proc_path, "w") as f:
                 json.dump(proc, f)
