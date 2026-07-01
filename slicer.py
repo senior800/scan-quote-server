@@ -89,6 +89,27 @@ def _ensure_type(json_path, work_dir, type_value, out_name):
     return out_path
 
 
+def _printer_identity(printer_path, work_dir):
+    """Return the identifier OrcaSlicer will use as this printer's "system name"
+    (its "inherits" value, else "name") — and if the printer file has NEITHER
+    (plausible for a flattened export with no preset metadata), inject a synthetic
+    "name" so there's something to reference at all. Used to keep the process file's
+    compatible_printers in sync — see the comment where this is called for why."""
+    try:
+        with open(printer_path) as f:
+            data = json.load(f)
+    except Exception:
+        return None
+    ident = data.get("inherits") or data.get("name")
+    if ident:
+        return ident
+    ident = "S-CAN H2S"
+    data["name"] = ident
+    with open(printer_path, "w") as f:
+        json.dump(data, f)
+    return ident
+
+
 def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> dict:
     if not available():
         _log("ORCA_BIN not found at %s — slicer not installed; using estimate." % ORCA_BIN)
@@ -109,6 +130,14 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
         printer_path = _ensure_type(PRINTER, work, "machine", "printer.json")
         filament_path = _ensure_type(_filament_for(material), work, "filament", "filament.json")
 
+        # Traced "exit 239 / return -17" to OrcaSlicer's own source: -17 is
+        # CLI_PROCESS_NOT_COMPATIBLE (src/libslic3r/Utils.hpp). The CLI checks that
+        # the process file's "compatible_printers" list contains the printer's
+        # "inherits" (or "name") value — our flattened exports don't carry that
+        # link, so it always fails. Fix: read the printer's identity and inject it
+        # into the process file's compatible_printers so the two agree.
+        printer_ident = _printer_identity(printer_path, work)
+
         # VERIFY: per-request infill. Derive a process json with sparse_infill_density
         # set, from the base profile. If that profile key differs in your version,
         # adjust here (or keep one process profile per infill level instead).
@@ -118,6 +147,8 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
                 proc = json.load(f)
             proc["sparse_infill_density"] = "%d%%" % int(infill_pct)
             proc.setdefault("type", "process")   # same missing-type issue as the printer file
+            if printer_ident:
+                proc["compatible_printers"] = [printer_ident]
             proc_path = os.path.join(work, "process.json")
             with open(proc_path, "w") as f:
                 json.dump(proc, f)
