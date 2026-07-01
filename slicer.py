@@ -219,14 +219,18 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
         #   (usage: "orca-slicer [OPTIONS] [file.3mf/file.stl ...]").
         # - --mstpp is SECONDS, not milliseconds (the help text says so explicitly;
         #   the old *1000 was wrong, though it wasn't what broke this specific run).
+        logfile_path = os.path.join(work, "orca_debug.log")
         cmd = [
             ORCA_BIN,
             "--load-settings", "%s;%s" % (printer_path, proc_path),
             "--load-filaments", filament_path,
             "--mstpp", str(TIMEOUT),
             "--outputdir", out_dir,
-            "--debug", "4",   # verbose internal logging — "exit code 239 / return -17" alone
-                              # is too generic to act on; this should show the real cause.
+            "--debug", "5",           # trace level — "exit code 239 / return -17" alone was
+                                      # too generic; the earlier --debug 4 attempt added
+                                      # nothing to stdout, which suggests it logs to a FILE
+                                      # rather than the console — hence --logfile below.
+            "--logfile", logfile_path,
             "--slice", "0",
             stl_path,
         ]
@@ -248,6 +252,17 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
             else:
                 _log("%s head: %s" % (label, text[:3000]))
                 _log("%s tail: %s" % (label, text[-3000:]))
+
+        # Read the log file even though the process aborted — most loggers flush
+        # progressively rather than only at a clean exit, so this can still capture
+        # everything up to the crash.
+        if os.path.exists(logfile_path):
+            with open(logfile_path, "rb") as f:
+                logtext = f.read()
+            _log("orca_debug.log is %d bytes" % len(logtext))
+            _dump("orca_debug.log", logtext)
+        else:
+            _log("orca_debug.log was never created")
 
         _dump("stdout", proc_run.stdout)
         _dump("stderr", proc_run.stderr)
