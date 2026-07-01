@@ -14,7 +14,7 @@ milestones — see ../PHASE2-SERVER.md.
 
 import os
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 import geometry
@@ -52,6 +52,38 @@ async def analyze(file: UploadFile = File(...)):
     result["filename"] = file.filename
     result["bytes"] = len(data)
     return result
+
+
+@app.post("/preview")
+async def preview(file: UploadFile = File(...)):
+    """STEP -> a tessellated mesh (binary STL bytes) for the 3D viewer ONLY.
+
+    This is visual only — a coarser mesh than /slice uses, purely so the front-end
+    can show the real shape instead of a bounding-box placeholder. The authoritative
+    volume/area/watertight numbers used for pricing still come from /analyze
+    (OpenCascade's analytic measurement), never from this tessellation, since a
+    mesh approximation is always slightly less accurate on curved surfaces.
+
+    STL isn't accepted here — the browser already has the real mesh for STL uploads."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large.")
+
+    name = (file.filename or "").lower()
+    if not (name.endswith(".step") or name.endswith(".stp")):
+        raise HTTPException(status_code=400, detail="Preview is for STEP files only.")
+
+    try:
+        # Coarser deflection (0.3mm) than /slice's default (0.1mm) — this mesh is
+        # only ever drawn on screen, so a smaller/faster payload matters more than
+        # surface-fidelity here.
+        stl = geometry.tessellate_step_to_stl(data, deflection=0.3)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail="Could not build a preview mesh: %s" % e)
+
+    return Response(content=stl, media_type="application/octet-stream")
 
 
 @app.post("/slice")

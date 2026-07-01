@@ -13,8 +13,8 @@ services:
       - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-*}
     expose:
       - "8000"                # internal network only — Caddy is the public face
-    mem_limit: 2g             # cap RAM so a pathological file can't take the box down
-    cpus: 1.5
+    mem_limit: 1200m          # cap RAM so a pathological file can't take the box down (leaves headroom on a 2GB droplet)
+    cpus: 0.9                 # leave a little CPU for the OS/Docker/Caddy on a 1-CPU droplet
     healthcheck:
       test: ["CMD", "micromamba", "run", "-n", "base", "python", "-c",
              "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]

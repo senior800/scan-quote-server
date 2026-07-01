@@ -24,6 +24,25 @@ the headline new capability is **STEP support** (via OpenCascade), which a brows
 
 Pricing stays in the front-end (config-driven) for now; it moves server-side in **2b** when OrcaSlicer gives authoritative FDM time/mass.
 
+## Real shape preview (`POST /preview`)
+
+`/analyze` deliberately returns only summary numbers, so the front-end initially shows
+a plain box sized to the bounding box. `POST /preview` (multipart, field `file`,
+**STEP only**) returns a **tessellated mesh** (binary STL bytes) purely so the viewer
+can draw the real shape instead:
+
+```bash
+curl -F "file=@part.step" https://quote-api.s-can.co.uk/preview -o preview.stl
+```
+
+- **Visual only** — uses a coarser tessellation (0.3mm) than `/slice` (0.1mm), since it's
+  only ever drawn on screen. The **pricing-relevant numbers stay from `/analyze`**
+  (OpenCascade's analytic measurement) — this mesh never overwrites them, because a
+  tessellation is always a slightly-approximate stand-in for the true curved surface.
+- The front-end calls this automatically, silently, right after `/analyze` — if it's
+  slow or fails, the part just keeps showing the bounding-box placeholder. Nothing
+  else depends on it working.
+
 ## Run it (Docker — the only supported way; OpenCascade needs conda)
 
 ```bash
