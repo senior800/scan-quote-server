@@ -93,6 +93,18 @@ def _ensure_type(json_path, work_dir, type_value, out_name):
         if isinstance(v, list) and len(v) == 0:
             data[k] = [""]
             changed = True
+    # Traced via elimination on a real H2S profile (2026-07-01): OrcaSlicer logs
+    # each gcode field it successfully loads from PresetBundle.cpp's alphabetically
+    # -ordered gcodes_key_set; our crash happened right after "machine_start_gcode"
+    # logged and BEFORE "time_lapse_gcode" (the next key in that set) ever did.
+    # These two are the set's remaining non-filament keys and, on this dual-nozzle
+    # -variant printer, are apparently expected as one-value-per-variant (a list),
+    # not a plain string — wrap them if they came through as scalars.
+    if type_value == "machine":
+        for k in ("time_lapse_gcode", "wrapping_detection_gcode"):
+            if k in data and isinstance(data[k], str):
+                data[k] = [data[k]]
+                changed = True
     if not changed:
         return json_path
     out_path = os.path.join(work_dir, out_name)
