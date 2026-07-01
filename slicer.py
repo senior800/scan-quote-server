@@ -62,8 +62,17 @@ def _parse_hms(s: str) -> float:
     return h + m / 60.0 + sec / 3600.0
 
 
+def _log(msg):
+    # Plain stdout print — picked up by `docker compose logs -f geometry` immediately.
+    # The /slice endpoint always returns HTTP 200 even on a soft failure (by design —
+    # see app.py), so the access log alone never shows WHY a slice didn't produce a
+    # result. This is the only place that reason is visible.
+    print("[slice] " + msg, flush=True)
+
+
 def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> dict:
     if not available():
+        _log("ORCA_BIN not found at %s — slicer not installed; using estimate." % ORCA_BIN)
         return {"sliced": False, "message": "Slicer not installed; using estimate."}
 
     work = tempfile.mkdtemp(prefix="orca_")
@@ -102,19 +111,29 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
         if shutil.which("xvfb-run"):   # headless safety (some builds need a display)
             cmd = ["xvfb-run", "-a"] + cmd
 
+        _log("running: " + " ".join(cmd))
         proc_run = subprocess.run(cmd, timeout=TIMEOUT + 20, capture_output=True, check=False)
+        _log("exit code %s" % proc_run.returncode)
+        if proc_run.stdout:
+            _log("stdout tail: " + proc_run.stdout[-500:].decode("latin-1", "ignore"))
+        if proc_run.stderr:
+            _log("stderr tail: " + proc_run.stderr[-500:].decode("latin-1", "ignore"))
 
         gpath = _find_gcode(out_dir)
         if not gpath:
             tail = (proc_run.stderr or b"")[-300:].decode("latin-1", "ignore")
+            _log("no g-code found in %s" % out_dir)
             return {"sliced": False, "message": "Slice produced no g-code; using estimate. " + tail}
 
         head = _read_text(gpath)
         tmatch = _TIME_RE.search(head)
         gmatch = _FIL_G_RE.search(head)
         if not tmatch or not gmatch:
+            _log("g-code found (%s) but time/mass regex didn't match — check the comment format." % gpath)
+            _log("g-code head sample: " + head[:800])
             return {"sliced": False, "message": "Could not parse slice output; using estimate."}
 
+        _log("OK — time=%s mass=%sg" % (tmatch.group(1), gmatch.group(1)))
         return {
             "sliced": True,
             "print_time_h": round(_parse_hms(tmatch.group(1)), 3),
@@ -123,8 +142,10 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
             "message": "",
         }
     except subprocess.TimeoutExpired:
+        _log("subprocess.run TIMED OUT after %ss" % (TIMEOUT + 20))
         return {"sliced": False, "message": "Slice timed out; using estimate."}
     except Exception as e:
+        _log("EXCEPTION: %r" % e)
         return {"sliced": False, "message": "Slice failed (%s); using estimate." % e}
     finally:
         shutil.rmtree(work, ignore_errors=True)
