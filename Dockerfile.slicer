@@ -6,7 +6,12 @@
 # ⚠ EVERYTHING in the OrcaSlicer block is UNTESTED and very likely to need tweaks
 #   on the first real build — the AppImage filename, version, and the GTK/GL libs
 #   vary by release. Adjust ORCA_VERSION / ORCA_URL and the apt list as needed.
-FROM mambaorg/micromamba:1.5.8
+#
+# Base image MUST be Ubuntu 24.04 (or newer glibc) — the OrcaSlicer Linux AppImage
+# is built against Ubuntu 24.04's glibc/libstdc++. The original 1.5.8 (Debian-based)
+# image was too old: "GLIBC_2.38 not found", "GLIBCXX_3.4.32 not found". Confirmed
+# `micromamba:2.8.1-ubuntu24.04` exists via the Docker Hub tags API on 2026-07-01.
+FROM mambaorg/micromamba:2.8.1-ubuntu24.04
 
 # --- 2a: geometry stack (OpenCascade + trimesh) ---
 COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/environment.yml
