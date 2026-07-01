@@ -98,15 +98,20 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
         out_dir = os.path.join(work, "out")
         os.makedirs(out_dir, exist_ok=True)
 
-        # VERIFY: flags for your OrcaSlicer version. `--mstpp` is the per-plate
-        # timeout (ms) — keep it; without it a bad model can slice forever.
+        # Confirmed against `orca-slicer --help` on the real binary (2026-07-01):
+        # - there is NO --export-gcode flag; gcode is produced automatically by
+        #   --slice + --outputdir, with the input file as a plain trailing argument
+        #   (usage: "orca-slicer [OPTIONS] [file.3mf/file.stl ...]").
+        # - --mstpp is SECONDS, not milliseconds (the help text says so explicitly;
+        #   the old *1000 was wrong, though it wasn't what broke this specific run).
         cmd = [
-            ORCA_BIN, "--slice", "0",
+            ORCA_BIN,
             "--load-settings", "%s;%s" % (PRINTER, proc_path),
             "--load-filaments", _filament_for(material),
-            "--mstpp", str(TIMEOUT * 1000),
+            "--mstpp", str(TIMEOUT),
             "--outputdir", out_dir,
-            "--export-gcode", stl_path,
+            "--slice", "0",
+            stl_path,
         ]
         if shutil.which("xvfb-run"):   # headless safety (some builds need a display)
             cmd = ["xvfb-run", "-a"] + cmd
