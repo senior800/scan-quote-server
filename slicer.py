@@ -70,6 +70,25 @@ def _log(msg):
     print("[slice] " + msg, flush=True)
 
 
+def _ensure_type(json_path, work_dir, type_value, out_name):
+    """If a preset JSON is missing its top-level "type" field, write a patched copy
+    with it added and return that path instead. Leaves already-proper preset files
+    (which already have "type") completely untouched. See the comment where this is
+    called for why this is needed."""
+    try:
+        with open(json_path) as f:
+            data = json.load(f)
+    except Exception:
+        return json_path  # unreadable — let the CLI raise its own (more specific) error
+    if "type" in data:
+        return json_path
+    data["type"] = type_value
+    out_path = os.path.join(work_dir, out_name)
+    with open(out_path, "w") as f:
+        json.dump(data, f)
+    return out_path
+
+
 def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> dict:
     if not available():
         _log("ORCA_BIN not found at %s — slicer not installed; using estimate." % ORCA_BIN)
@@ -81,6 +100,15 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
         with open(stl_path, "wb") as f:
             f.write(stl_bytes)
 
+        # Some exported presets (from a slicer's "export settings" dump rather than a
+        # native saved preset) come through as a flat, fully-resolved settings object
+        # with NO "type" field — OrcaSlicer's CLI loader can't tell what kind of
+        # preset that is and fails with "unknown config type" (found 2026-07-01 on a
+        # real H2S export). Patch it in on a working copy; leave already-proper files
+        # (which DO have "type") completely untouched.
+        printer_path = _ensure_type(PRINTER, work, "machine", "printer.json")
+        filament_path = _ensure_type(_filament_for(material), work, "filament", "filament.json")
+
         # VERIFY: per-request infill. Derive a process json with sparse_infill_density
         # set, from the base profile. If that profile key differs in your version,
         # adjust here (or keep one process profile per infill level instead).
@@ -89,6 +117,7 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
             with open(PROCESS) as f:
                 proc = json.load(f)
             proc["sparse_infill_density"] = "%d%%" % int(infill_pct)
+            proc.setdefault("type", "process")   # same missing-type issue as the printer file
             proc_path = os.path.join(work, "process.json")
             with open(proc_path, "w") as f:
                 json.dump(proc, f)
@@ -106,8 +135,8 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
         #   the old *1000 was wrong, though it wasn't what broke this specific run).
         cmd = [
             ORCA_BIN,
-            "--load-settings", "%s;%s" % (PRINTER, proc_path),
-            "--load-filaments", _filament_for(material),
+            "--load-settings", "%s;%s" % (printer_path, proc_path),
+            "--load-filaments", filament_path,
             "--mstpp", str(TIMEOUT),
             "--outputdir", out_dir,
             "--slice", "0",
