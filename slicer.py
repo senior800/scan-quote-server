@@ -50,7 +50,15 @@ def _filament_for(material: str) -> str:
     return p if os.path.exists(p) else DEFAULT_FILAMENT
 
 
-_TIME_RE = re.compile(r"estimated printing time[^=]*=\s*(.+)", re.I)
+# OrcaSlicer 2.4.1 (H2S) g-code header, confirmed on a real slice 2026-07-01:
+#   "; model printing time: 19m 9s; total estimated time: 23m 54s"   (header block)
+#   "; filament used [g] = 2.84"                                      (footer)
+# We take "total estimated time" (the machine's real busy time incl. heating/homing/
+# calibration), not "model printing time" (extrusion only). Both patterns are ordered
+# so the time one anchors on "total estimated time:" (colon, and "estimated time" —
+# an earlier pattern wrongly looked for "estimated printing time = ", which never
+# matched this format, so time parsing failed even though the slice succeeded).
+_TIME_RE = re.compile(r"total estimated time:\s*([0-9hms ]+)", re.I)
 _FIL_G_RE = re.compile(r"(?:total\s+)?filament used\s*\[g\]\s*=\s*([\d.]+)", re.I)
 
 
