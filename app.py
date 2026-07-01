@@ -55,7 +55,7 @@ async def analyze(file: UploadFile = File(...)):
 
 
 @app.post("/preview")
-async def preview(file: UploadFile = File(...)):
+async def preview(file: UploadFile = File(...), body_index: int = Form(None)):
     """STEP -> a tessellated mesh (binary STL bytes) for the 3D viewer ONLY.
 
     This is visual only — a coarser mesh than /slice uses, purely so the front-end
@@ -63,6 +63,9 @@ async def preview(file: UploadFile = File(...)):
     volume/area/watertight numbers used for pricing still come from /analyze
     (OpenCascade's analytic measurement), never from this tessellation, since a
     mesh approximation is always slightly less accurate on curved surfaces.
+
+    `body_index` (optional): preview just one solid from a multi-body file that the
+    client has split into separate parts — see analyze_step()'s `bodies_detail`.
 
     STL isn't accepted here — the browser already has the real mesh for STL uploads."""
     data = await file.read()
@@ -79,11 +82,43 @@ async def preview(file: UploadFile = File(...)):
         # Coarser deflection (0.3mm) than /slice's default (0.1mm) — this mesh is
         # only ever drawn on screen, so a smaller/faster payload matters more than
         # surface-fidelity here.
-        stl = geometry.tessellate_step_to_stl(data, deflection=0.3)
+        stl = geometry.tessellate_step_to_stl(data, deflection=0.3, body_index=body_index)
     except Exception as e:
         raise HTTPException(status_code=422, detail="Could not build a preview mesh: %s" % e)
 
     return Response(content=stl, media_type="application/octet-stream")
+
+
+@app.post("/thinwall")
+async def thinwall(
+    file: UploadFile = File(...),
+    min_wall_mm: float = Form(...),
+    scale_factor: float = Form(1.0),   # mm-per-file-unit × scale% — measure at final printed size
+    body_index: int = Form(None),      # one solid from a split multi-body STEP file
+):
+    """Approximate wall-thickness check (STL or STEP; any process) via ray casting on the
+    tessellated, final-scaled mesh. Inherently approximate — see PHASE2-SERVER.md §5.3.
+    Always returns 200; check the `ok` flag and skip the check (never hard-reject) if false.
+    `min_wall_mm` is the per-material threshold — the client already knows this from its
+    pricing config, so the server stays a pure measurement service with one source of truth."""
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    if len(data) > MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large.")
+
+    name = (file.filename or "").lower()
+    try:
+        if name.endswith(".step") or name.endswith(".stp"):
+            stl = geometry.tessellate_step_to_stl(data, deflection=0.2, body_index=body_index)
+        else:
+            stl = data
+        if abs(scale_factor - 1.0) > 1e-9:
+            stl = geometry.scale_stl(stl, scale_factor)
+    except Exception as e:
+        return {"ok": False, "message": "Could not prepare mesh for thickness analysis: %s" % e}
+
+    return geometry.thin_wall_analysis(stl, float(min_wall_mm))
 
 
 @app.post("/slice")
@@ -93,6 +128,7 @@ async def slice_part(
     material: str = Form("PLA"),
     infill: int = Form(20),
     scale_factor: float = Form(1.0),   # mm-per-file-unit × scale% — slice at final size
+    body_index: int = Form(None),      # one solid from a split multi-body STEP file
 ):
     """FDM only — returns slicer-measured time + filament mass (milestone 2b).
     SLA/SLS are priced on volume + bounding box, so they short-circuit here.
@@ -109,7 +145,7 @@ async def slice_part(
     name = (file.filename or "").lower()
     try:
         if name.endswith(".step") or name.endswith(".stp"):
-            stl = geometry.tessellate_step_to_stl(data)
+            stl = geometry.tessellate_step_to_stl(data, body_index=body_index)
         else:
             stl = data
         if abs(scale_factor - 1.0) > 1e-9:

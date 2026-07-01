@@ -1,0 +1,26 @@
+{
+    "default_filament_colour": [
+        "#8000FF"
+    ],
+    "filament_cost": [
+        "26.9"
+    ],
+    "filament_density": [
+        "1.03"
+    ],
+    "filament_extruder_variant": [
+        "Direct Drive Standard",
+        "Direct Drive High Flow"
+    ],
+    "filament_flow_ratio": [
+        "0.931",
+        "nil"
+    ],
+    "filament_settings_id": [
+        "Polylite ABS"
+    ],
+    "from": "User",
+    "inherits": "Generic ABS @BBL H2S 0.4 nozzle",
+    "name": "PolyLite ABS",
+    "version": "2.2.0.4"
+}

@@ -79,6 +79,51 @@ In [../prototype.html](../prototype.html), replace the in-browser `parseSTL`/`an
 geometry in `computePart`. When `units_known` is true (STEP), hide/lock the units selector.
 Keep everything else (pricing, basket, delivery, quote) unchanged.
 
+## Multi-body splitting
+
+Files containing several separate solids are **split into separate priced lines**, per
+S-CAN's original decision. This works differently for the two formats:
+
+- **STEP:** `analyze_step()` returns a `bodies_detail` array (one entry per solid — volume,
+  area, bbox, watertight) whenever there's more than one solid; `null` for single-solid
+  files (no change to the existing response shape). The front-end creates one part per
+  entry and tags each with a `body_index` — every later call for that part (`/preview`,
+  `/slice`, `/thinwall`) includes `body_index` so `tessellate_step_to_stl()` operates on
+  just that one solid, not the whole file.
+- **STL:** handled entirely client-side (no server round-trip) — the browser already has
+  the full mesh, so it welds vertices, finds connected components, and (only when the
+  *whole* mesh is watertight — see the comment in `topology()` in `prototype.html` for why
+  that's safe) splits into per-body sub-meshes with their own volume/area/bbox, each
+  re-serialized to a standalone STL for any later server calls.
+
+## Thin-wall check (`POST /thinwall`)
+
+One of the two original must-haves (alongside STEP). `POST /thinwall` (multipart: `file`,
+`min_wall_mm`, `scale_factor`) approximates the part's thinnest wall via **ray casting** —
+for sampled points on the surface, cast a ray inward and measure the distance to the
+opposite wall:
+
+```json
+{ "ok": true, "min_thickness_mm": 0.62, "pct_below_threshold": 4.3, "min_wall_mm": 0.8, "samples": 3000, "verdict": "review" }
+```
+
+- Works for **STL and STEP, any process** — not FDM-specific. STEP is tessellated first
+  (like `/preview`); either way the mesh is scaled to the part's **final printed size**
+  before measuring, via the same `scale_stl()` used by `/slice`.
+- `min_wall_mm` comes from the **client's** pricing config (the material's minimum), so the
+  server stays a pure measurement service — one source of truth for thresholds, in the
+  front-end config, not duplicated here.
+- **`verdict`** is `"review"` if more than 2% of sampled points fall below the threshold
+  (a small tolerance — grazing-angle ray hits near edges are a known false-positive source
+  for this method, see the docstring in `geometry.py`), else `"pass"`.
+- **Fail-soft:** non-watertight meshes, unreadable files, or any error return
+  `{"ok": false, "message": "..."}` — the front-end treats this as "skip the check," never
+  as a rejection. Only a successful `verdict: "review"` should route a part to manual review.
+- ⚠ This is an **approximation**, not a certified thickness measurement — see
+  [../PHASE2-SERVER.md](../PHASE2-SERVER.md) §5.3. Untested against OCC-tessellated real
+  parts; the 2% tolerance and the ray-nudge epsilon are the first things to tune if it's
+  too trigger-happy or too lax in practice.
+
 ## 2b — FDM time & mass (scaffolded, UNTESTED)
 
 `POST /slice` (multipart: `file`, `process`, `material`, `infill`) runs **OrcaSlicer**

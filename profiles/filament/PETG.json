@@ -1,0 +1,19 @@
+{
+    "cool_plate_temp": [
+        "70"
+    ],
+    "cool_plate_temp_initial_layer": [
+        "70"
+    ],
+    "filament_extruder_variant": [
+        "Direct Drive Standard",
+        "Direct Drive High Flow"
+    ],
+    "filament_settings_id": [
+        "PolyLite PETG @BBL X1C 0.2 nozzle - Copy"
+    ],
+    "from": "User",
+    "inherits": "PolyLite PETG @BBL X1C 0.2 nozzle",
+    "name": "PolyLite PETG @BBL X1C 0.2 nozzle - Copy",
+    "version": "1.9.0.26"
+}

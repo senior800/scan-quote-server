@@ -1,0 +1,40 @@
+{
+    "default_filament_colour": [
+        "#000000"
+    ],
+    "eng_plate_temp": [
+        "100"
+    ],
+    "eng_plate_temp_initial_layer": [
+        "100"
+    ],
+    "filament_cost": [
+        "23.6"
+    ],
+    "filament_density": [
+        "1.02"
+    ],
+    "filament_extruder_variant": [
+        "Direct Drive Standard",
+        "Direct Drive High Flow"
+    ],
+    "filament_settings_id": [
+        "Polylite ASA"
+    ],
+    "from": "User",
+    "hot_plate_temp": [
+        "100"
+    ],
+    "hot_plate_temp_initial_layer": [
+        "100"
+    ],
+    "inherits": "Generic ASA @BBL H2S 0.4 nozzle",
+    "name": "Polylite ASA",
+    "textured_plate_temp": [
+        "100"
+    ],
+    "textured_plate_temp_initial_layer": [
+        "100"
+    ],
+    "version": "2.2.0.4"
+}

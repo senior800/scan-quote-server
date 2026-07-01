@@ -7,7 +7,7 @@ services:
   geometry:
     build:
       context: .
-      dockerfile: Dockerfile          # 2a (geometry only). For 2b FDM slicing, switch to: Dockerfile.slicer
+      dockerfile: Dockerfile.slicer   # 2a geometry + OrcaSlicer (2b, FDM time/mass). Was: Dockerfile (geometry only).
     restart: unless-stopped
     environment:
       - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-*}

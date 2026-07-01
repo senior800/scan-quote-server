@@ -1,0 +1,45 @@
+{
+    "enable_pressure_advance": [
+        "1"
+    ],
+    "filament_extruder_variant": [
+        "Direct Drive Standard",
+        "Direct Drive High Flow"
+    ],
+    "filament_flow_ratio": [
+        "1.104",
+        "nil"
+    ],
+    "filament_max_volumetric_speed": [
+        "3.5",
+        "nil"
+    ],
+    "filament_retraction_length": [
+        "1",
+        "nil"
+    ],
+    "filament_settings_id": [
+        "PolyFlex TPU 95-HF"
+    ],
+    "from": "User",
+    "inherits": "Bambu TPU 95A @BBL X1C",
+    "name": "PolyFlex TPU 95-HF",
+    "nozzle_temperature": [
+        "225",
+        "nil"
+    ],
+    "nozzle_temperature_initial_layer": [
+        "225",
+        "nil"
+    ],
+    "nozzle_temperature_range_high": [
+        "230"
+    ],
+    "nozzle_temperature_range_low": [
+        "195"
+    ],
+    "pressure_advance": [
+        "0.092"
+    ],
+    "version": "1.6.0.2"
+}

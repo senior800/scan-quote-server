@@ -1,0 +1,15 @@
+{
+    "from": "User",
+    "inherits": "0.20mm Standard @BBL H2S",
+    "name": "0.20mm Standard @BBL H2S - Copy",
+    "print_extruder_id": [
+        "1",
+        "1"
+    ],
+    "print_extruder_variant": [
+        "Direct Drive Standard",
+        "Direct Drive High Flow"
+    ],
+    "print_settings_id": "0.20mm Standard @BBL H2S - Copy",
+    "version": "2.3.0.5"
+}

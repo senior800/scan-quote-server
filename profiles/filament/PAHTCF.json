@@ -1,0 +1,17 @@
+{
+    "filament_extruder_variant": [
+        "Direct Drive Standard",
+        "Direct Drive High Flow"
+    ],
+    "filament_flow_ratio": [
+        "0.80352",
+        "nil"
+    ],
+    "filament_settings_id": [
+        "Bambu PAHT-CF Flow Rate Calibrated"
+    ],
+    "from": "User",
+    "inherits": "Bambu PAHT-CF @BBL H2S",
+    "name": "Bambu PAHT-CF Flow Rate Calibrated",
+    "version": "2.2.0.4"
+}
