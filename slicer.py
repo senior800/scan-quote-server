@@ -76,18 +76,39 @@ def _log(msg):
     print("[slice] " + msg, flush=True)
 
 
-def _ensure_type(json_path, work_dir, type_value, out_name):
-    """Ensure a preset JSON has its top-level "type" field, AND that no list-valued
-    field is left genuinely empty (`[]`) — write a patched copy if either needed,
-    else leave an already-proper file completely untouched.
+def _drop_empty_arrays(data):
+    """Remove every key whose value is an empty array (`[]`), in place; return
+    True if anything was removed.
 
-    Empty arrays are a real, repeat crash source: OrcaSlicer's CLI does an internal
-    "split settings across N slots/variants" pass over these files, and pulling a
-    value from an empty array throws a hard C++ abort (ConfigOptionVector::set_at:
-    "Assigning from an empty vector" — confirmed 2026-07-01 on a real H2S export).
-    We deliberately do NOT touch fields with >1 entries here (those are genuinely
-    meaningful, e.g. the H2S's two nozzle variants) — only fields with ZERO entries,
-    which can only ever have been useless to the CLI anyway."""
+    Empty arrays are THE repeat crash source. OrcaSlicer's CLI does an internal
+    "split settings across N filament slots / nozzle variants" pass, and for every
+    array-valued setting it calls `ConfigOptionVector::set_at(src, i, 0)`, which
+    reads `src[0]` — an empty array makes that a hard C++ abort
+    (`ConfigOptionVector::set_at(): Assigning from an empty vector`, SIGABRT —
+    confirmed against the v2.4.1 source, src/OrcaSlicer.cpp ~line 3300, on a real
+    H2S export 2026-07-01).
+
+    We DELETE such keys rather than fill them with a placeholder. An empty array
+    carries no data anyway, and deleting it makes OrcaSlicer instantiate its own
+    built-in default for that key (guaranteed non-empty AND correctly typed).
+    A previous version filled them with `[""]` instead — that was actively wrong:
+    for a NUMERIC setting the empty string `""` deserializes back to *zero* numbers,
+    i.e. an empty vector again, so the identical crash persisted unchanged (this is
+    exactly why several redeploys produced byte-for-byte identical crash logs).
+    We deliberately never touch arrays that already have >=1 entry — those are real
+    data (e.g. the H2S's two genuine nozzle variants)."""
+    removed = False
+    for k, v in list(data.items()):
+        if isinstance(v, list) and len(v) == 0:
+            del data[k]
+            removed = True
+    return removed
+
+
+def _ensure_type(json_path, work_dir, type_value, out_name):
+    """Ensure a preset JSON has its top-level "type" field and no empty-array
+    fields (see _drop_empty_arrays for why) — write a patched copy if either was
+    needed, else leave an already-proper file completely untouched."""
     try:
         with open(json_path) as f:
             data = json.load(f)
@@ -95,22 +116,8 @@ def _ensure_type(json_path, work_dir, type_value, out_name):
         return json_path  # unreadable — let the CLI raise its own (more specific) error
     changed = "type" not in data
     data["type"] = data.get("type", type_value)
-    for k, v in list(data.items()):
-        if isinstance(v, list) and len(v) == 0:
-            data[k] = [""]
-            changed = True
-    # Traced via elimination on a real H2S profile (2026-07-01): OrcaSlicer logs
-    # each gcode field it successfully loads from PresetBundle.cpp's alphabetically
-    # -ordered gcodes_key_set; our crash happened right after "machine_start_gcode"
-    # logged and BEFORE "time_lapse_gcode" (the next key in that set) ever did.
-    # These two are the set's remaining non-filament keys and, on this dual-nozzle
-    # -variant printer, are apparently expected as one-value-per-variant (a list),
-    # not a plain string — wrap them if they came through as scalars.
-    if type_value == "machine":
-        for k in ("time_lapse_gcode", "wrapping_detection_gcode"):
-            if k in data and isinstance(data[k], str):
-                data[k] = [data[k]]
-                changed = True
+    if _drop_empty_arrays(data):
+        changed = True
     if not changed:
         return json_path
     out_path = os.path.join(work_dir, out_name)
@@ -121,18 +128,17 @@ def _ensure_type(json_path, work_dir, type_value, out_name):
 
 def _force_single_filament(json_path, work_dir, out_name, printer_ident=None):
     """Normalize a filament preset so a single-material CLI slice can't crash on it:
-    truncate any >1-entry list to its first element, fill any EMPTY list with a
-    single placeholder, ensure "type" is set, and (if given) point its
+    truncate any >1-entry list to its first element, DELETE any empty list (see
+    _drop_empty_arrays), ensure "type" is set, and (if given) point its
     "compatible_printers" at our actual printer rather than whatever it was
     originally calibrated against.
 
-    Confirmed on a real H2S export (2026-07-01): the only genuinely empty array was
-    "compatible_prints": [] — OrcaSlicer's per-slot config split tries to pull a
-    value out of it and crashes with "ConfigOptionVector::set_at(): Assigning from
-    an empty vector" (a hard C++ abort, not a graceful CLI error). Also found
-    "compatible_printers" pointing at an X1 Carbon (the filament was originally
-    calibrated on a different printer, which is normal in Bambu Studio) — left
-    uncorrected this could cause a different rejection once the crash is fixed."""
+    The empty-array delete is the crash fix: OrcaSlicer's per-filament config split
+    calls set_at() on every array-valued key (src/OrcaSlicer.cpp ~line 3300) and a
+    hard C++ abort ("ConfigOptionVector::set_at(): Assigning from an empty vector")
+    results from any empty one. Also found "compatible_printers" pointing at an X1
+    Carbon (the filament was originally calibrated on a different printer, normal in
+    Bambu Studio) — corrected so it isn't rejected as incompatible once past the crash."""
     try:
         with open(json_path) as f:
             data = json.load(f)
@@ -141,13 +147,11 @@ def _force_single_filament(json_path, work_dir, out_name, printer_ident=None):
     changed = "type" not in data
     data["type"] = data.get("type", "filament")
     for k, v in list(data.items()):
-        if isinstance(v, list):
-            if len(v) > 1:
-                data[k] = v[:1]
-                changed = True
-            elif len(v) == 0:
-                data[k] = [""]
-                changed = True
+        if isinstance(v, list) and len(v) > 1:
+            data[k] = v[:1]
+            changed = True
+    if _drop_empty_arrays(data):   # empty arrays crash set_at — delete, don't placeholder
+        changed = True
     if printer_ident:
         data["compatible_printers"] = [printer_ident]
         changed = True
@@ -219,9 +223,7 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
             proc.setdefault("type", "process")   # same missing-type issue as the printer file
             if printer_ident:
                 proc["compatible_printers"] = [printer_ident]
-            for k, v in list(proc.items()):       # same empty-array crash risk as printer.json
-                if isinstance(v, list) and len(v) == 0:
-                    proc[k] = [""]
+            _drop_empty_arrays(proc)              # same empty-array crash risk as the other files
             proc_path = os.path.join(work, "process.json")
             with open(proc_path, "w") as f:
                 json.dump(proc, f)
