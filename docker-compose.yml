@@ -11,6 +11,7 @@ services:
     restart: unless-stopped
     environment:
       - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-*}
+      - ORCA_KEEP_TMP=${ORCA_KEEP_TMP:-}   # debug only — set to 1 in .env to keep temp dirs for gdb, then unset
     expose:
       - "8000"                # internal network only — Caddy is the public face
     mem_limit: 1200m          # cap RAM so a pathological file can't take the box down (leaves headroom on a 2GB droplet)

@@ -17,6 +17,7 @@ Env config (set in the Dockerfile / compose):
   ORCA_FILAMENT_DIR    per-material filament dir    (default: /app/profiles/filament)
   ORCA_FILAMENT_JSON   fallback filament profile    (default: .../filament/PLA.json)
   ORCA_TIMEOUT_S       hard per-slice timeout (s)   (default: 180)
+  ORCA_KEEP_TMP        debug only — keep temp dir on disk for gdb (default: unset)
 """
 
 import os
@@ -33,6 +34,11 @@ PROCESS = os.getenv("ORCA_PROCESS_JSON", "/app/profiles/h2s_process.json")
 FILAMENT_DIR = os.getenv("ORCA_FILAMENT_DIR", "/app/profiles/filament")
 DEFAULT_FILAMENT = os.getenv("ORCA_FILAMENT_JSON", "/app/profiles/filament/PLA.json")
 TIMEOUT = int(os.getenv("ORCA_TIMEOUT_S", "180"))
+# Debug-only: when set, the per-request temp dir (derived printer/process/filament
+# JSON + the STL) is left on disk instead of being cleaned up, so it can be pointed
+# at directly with gdb after a crash to get a real backtrace instead of guessing
+# from log output. Never set this in normal operation — it leaks a dir per request.
+KEEP_TMP = bool(os.getenv("ORCA_KEEP_TMP"))
 
 
 def available() -> bool:
@@ -312,7 +318,10 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
         _log("EXCEPTION: %r" % e)
         return {"sliced": False, "message": "Slice failed (%s); using estimate." % e}
     finally:
-        shutil.rmtree(work, ignore_errors=True)
+        if KEEP_TMP:
+            _log("ORCA_KEEP_TMP set — leaving %s on disk for gdb" % work)
+        else:
+            shutil.rmtree(work, ignore_errors=True)
 
 
 def _find_gcode(d: str):
