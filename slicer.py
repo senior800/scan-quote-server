@@ -89,19 +89,20 @@ def _ensure_type(json_path, work_dir, type_value, out_name):
     return out_path
 
 
-def _force_single_filament(json_path, work_dir, out_name):
-    """Truncate every per-slot (list-valued) field in a filament preset to exactly
-    one entry, and make sure "type" is set.
+def _force_single_filament(json_path, work_dir, out_name, printer_ident=None):
+    """Normalize a filament preset so a single-material CLI slice can't crash on it:
+    truncate any >1-entry list to its first element, fill any EMPTY list with a
+    single placeholder, ensure "type" is set, and (if given) point its
+    "compatible_printers" at our actual printer rather than whatever it was
+    originally calibrated against.
 
-    Traced "terminate ... ConfigurationError: Assigning an empty vector" to
-    PresetBundle.cpp: OrcaSlicer decides how many filament SLOTS to configure from
-    the length of the filament's "filament_colour" array (the H2S has a multi-slot
-    AMS, so an exported profile can carry colours/settings for several slots). If
-    that's >1, it tries to SPLIT our one filament file across that many slots, and
-    any other per-slot array that doesn't also have that many entries crashes with
-    exactly this error. We only ever want ONE material per quote, so force every
-    list field down to its first element — this makes the slot count resolve to 1
-    and keeps every array internally consistent."""
+    Confirmed on a real H2S export (2026-07-01): the only genuinely empty array was
+    "compatible_prints": [] — OrcaSlicer's per-slot config split tries to pull a
+    value out of it and crashes with "ConfigOptionVector::set_at(): Assigning from
+    an empty vector" (a hard C++ abort, not a graceful CLI error). Also found
+    "compatible_printers" pointing at an X1 Carbon (the filament was originally
+    calibrated on a different printer, which is normal in Bambu Studio) — left
+    uncorrected this could cause a different rejection once the crash is fixed."""
     try:
         with open(json_path) as f:
             data = json.load(f)
@@ -110,9 +111,16 @@ def _force_single_filament(json_path, work_dir, out_name):
     changed = "type" not in data
     data["type"] = data.get("type", "filament")
     for k, v in list(data.items()):
-        if isinstance(v, list) and len(v) > 1:
-            data[k] = v[:1]
-            changed = True
+        if isinstance(v, list):
+            if len(v) > 1:
+                data[k] = v[:1]
+                changed = True
+            elif len(v) == 0:
+                data[k] = [""]
+                changed = True
+    if printer_ident:
+        data["compatible_printers"] = [printer_ident]
+        changed = True
     if not changed:
         return json_path
     out_path = os.path.join(work_dir, out_name)
@@ -160,15 +168,15 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
         # real H2S export). Patch it in on a working copy; leave already-proper files
         # (which DO have "type") completely untouched.
         printer_path = _ensure_type(PRINTER, work, "machine", "printer.json")
-        filament_path = _force_single_filament(_filament_for(material), work, "filament.json")
 
         # Traced "exit 239 / return -17" to OrcaSlicer's own source: -17 is
         # CLI_PROCESS_NOT_COMPATIBLE (src/libslic3r/Utils.hpp). The CLI checks that
-        # the process file's "compatible_printers" list contains the printer's
-        # "inherits" (or "name") value — our flattened exports don't carry that
-        # link, so it always fails. Fix: read the printer's identity and inject it
-        # into the process file's compatible_printers so the two agree.
+        # the process/filament file's "compatible_printers" list contains the
+        # printer's "inherits" (or "name") value — our exports don't reliably carry
+        # that link (or point at the wrong printer), so it always fails without
+        # this. Compute it once, then stamp it into both files below.
         printer_ident = _printer_identity(printer_path, work)
+        filament_path = _force_single_filament(_filament_for(material), work, "filament.json", printer_ident)
 
         # VERIFY: per-request infill. Derive a process json with sparse_infill_density
         # set, from the base profile. If that profile key differs in your version,
