@@ -18,9 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates wget xvfb libgl1 libglu1-mesa libegl1 libgomp1 \
       libgtk-3-0 libwebkit2gtk-4.1-0 libsecret-1-0 libfuse2 \
     && rm -rf /var/lib/apt/lists/*
-# VERIFY the URL for the OrcaSlicer release you want (SoftFever/OrcaSlicer releases).
-ARG ORCA_VERSION=2.1.1
-ARG ORCA_URL=https://github.com/SoftFever/OrcaSlicer/releases/download/v${ORCA_VERSION}/OrcaSlicer_Linux_AppImage_Ubuntu2404_V${ORCA_VERSION}.AppImage
+# The project moved orgs (was SoftFever/OrcaSlicer) — now OrcaSlicer/OrcaSlicer.
+# Confirmed via `gh api repos/OrcaSlicer/OrcaSlicer/releases/latest` + a live download
+# check on 2026-07-01: v2.4.1's Ubuntu 24.04 x86_64 AppImage resolves and downloads
+# (137MB). If a future version 404s again, re-run that same gh api command to see
+# the exact current asset names — release asset naming has already changed once.
+ARG ORCA_VERSION=2.4.1
+ARG ORCA_URL=https://github.com/OrcaSlicer/OrcaSlicer/releases/download/v${ORCA_VERSION}/OrcaSlicer_Linux_AppImage_Ubuntu2404_V${ORCA_VERSION}.AppImage
 RUN wget -qO /tmp/orca.AppImage "${ORCA_URL}" \
     && chmod +x /tmp/orca.AppImage \
     && cd /opt && /tmp/orca.AppImage --appimage-extract >/dev/null \
