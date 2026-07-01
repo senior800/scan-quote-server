@@ -1,0 +1,9 @@
+# Caddy auto-provisions a Let's Encrypt certificate for QUOTE_DOMAIN.
+# For local testing QUOTE_DOMAIN defaults to "localhost" (Caddy serves a local cert).
+{$QUOTE_DOMAIN:localhost} {
+	reverse_proxy geometry:8000
+	request_body {
+		max_size 120MB
+	}
+	encode zstd gzip
+}

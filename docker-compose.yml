@@ -1,0 +1,43 @@
+# S-CAN quoting geometry service — production stack
+#   geometry : the FastAPI + OpenCascade service (internal only)
+#   caddy    : public reverse proxy with automatic HTTPS (Let's Encrypt)
+#
+# Usage:  cp .env.example .env  &&  edit  &&  docker compose up -d --build
+services:
+  geometry:
+    build:
+      context: .
+      dockerfile: Dockerfile          # 2a (geometry only). For 2b FDM slicing, switch to: Dockerfile.slicer
+    restart: unless-stopped
+    environment:
+      - ALLOWED_ORIGIN=${ALLOWED_ORIGIN:-*}
+    expose:
+      - "8000"                # internal network only — Caddy is the public face
+    mem_limit: 2g             # cap RAM so a pathological file can't take the box down
+    cpus: 1.5
+    healthcheck:
+      test: ["CMD", "micromamba", "run", "-n", "base", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 40s
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - geometry
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - QUOTE_DOMAIN=${QUOTE_DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

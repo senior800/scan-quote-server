@@ -1,0 +1,35 @@
+# 2b image: the 2a geometry service + OrcaSlicer (FDM time/mass).
+# Kept SEPARATE from ./Dockerfile so the proven 2a image can't be broken by the
+# (fiddly, version-sensitive) OrcaSlicer install. Point compose at this file once
+# the slicer + H2S profiles are sorted:  build: { dockerfile: Dockerfile.slicer }
+#
+# ⚠ EVERYTHING in the OrcaSlicer block is UNTESTED and very likely to need tweaks
+#   on the first real build — the AppImage filename, version, and the GTK/GL libs
+#   vary by release. Adjust ORCA_VERSION / ORCA_URL and the apt list as needed.
+FROM mambaorg/micromamba:1.5.8
+
+# --- 2a: geometry stack (OpenCascade + trimesh) ---
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/environment.yml
+RUN micromamba install -y -n base -f /tmp/environment.yml && micromamba clean --all --yes
+
+# --- 2b: OrcaSlicer (root for apt, then back to the mamba user) ---
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates wget xvfb libgl1 libglu1-mesa libegl1 libgomp1 \
+      libgtk-3-0 libwebkit2gtk-4.1-0 libsecret-1-0 libfuse2 \
+    && rm -rf /var/lib/apt/lists/*
+# VERIFY the URL for the OrcaSlicer release you want (SoftFever/OrcaSlicer releases).
+ARG ORCA_VERSION=2.1.1
+ARG ORCA_URL=https://github.com/SoftFever/OrcaSlicer/releases/download/v${ORCA_VERSION}/OrcaSlicer_Linux_AppImage_Ubuntu2404_V${ORCA_VERSION}.AppImage
+RUN wget -qO /tmp/orca.AppImage "${ORCA_URL}" \
+    && chmod +x /tmp/orca.AppImage \
+    && cd /opt && /tmp/orca.AppImage --appimage-extract >/dev/null \
+    && mv squashfs-root orca \
+    && rm /tmp/orca.AppImage
+ENV ORCA_BIN=/opt/orca/AppRun
+USER $MAMBA_USER
+
+COPY --chown=$MAMBA_USER:$MAMBA_USER . /app
+WORKDIR /app
+EXPOSE 8000
+CMD ["micromamba", "run", "-n", "base", "uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
