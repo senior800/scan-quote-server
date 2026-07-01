@@ -139,6 +139,8 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
             "--load-filaments", filament_path,
             "--mstpp", str(TIMEOUT),
             "--outputdir", out_dir,
+            "--debug", "4",   # verbose internal logging — "exit code 239 / return -17" alone
+                              # is too generic to act on; this should show the real cause.
             "--slice", "0",
             stl_path,
         ]
@@ -148,10 +150,21 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
         _log("running: " + " ".join(cmd))
         proc_run = subprocess.run(cmd, timeout=TIMEOUT + 20, capture_output=True, check=False)
         _log("exit code %s" % proc_run.returncode)
-        if proc_run.stdout:
-            _log("stdout tail: " + proc_run.stdout[-500:].decode("latin-1", "ignore"))
-        if proc_run.stderr:
-            _log("stderr tail: " + proc_run.stderr[-500:].decode("latin-1", "ignore"))
+
+        def _dump(label, blob):
+            # Log BOTH ends — with --debug on, the actual descriptive error could be
+            # anywhere in a much longer stream, not just in the last 500 bytes.
+            if not blob:
+                return
+            text = blob.decode("latin-1", "ignore")
+            if len(text) <= 6000:
+                _log("%s (%d bytes): %s" % (label, len(blob), text))
+            else:
+                _log("%s head: %s" % (label, text[:3000]))
+                _log("%s tail: %s" % (label, text[-3000:]))
+
+        _dump("stdout", proc_run.stdout)
+        _dump("stderr", proc_run.stderr)
 
         gpath = _find_gcode(out_dir)
         if not gpath:
