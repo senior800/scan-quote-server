@@ -247,11 +247,15 @@ def slice_fdm(stl_bytes: bytes, infill_pct: int = 20, material: str = "PLA") -> 
             if not blob:
                 return
             text = blob.decode("latin-1", "ignore")
-            if len(text) <= 6000:
+            # 30000 comfortably covers a full --debug 5 trace for a normal part (the
+            # 17975-byte one we've seen so far). A 3000/3000 head+tail split missed
+            # ~12000 bytes in the middle last time — exactly where the crash-adjacent
+            # trace likely was — so only fall back to a split for a truly huge log.
+            if len(text) <= 30000:
                 _log("%s (%d bytes): %s" % (label, len(blob), text))
             else:
-                _log("%s head: %s" % (label, text[:3000]))
-                _log("%s tail: %s" % (label, text[-3000:]))
+                _log("%s head: %s" % (label, text[:6000]))
+                _log("%s tail: %s" % (label, text[-24000:]))
 
         # Read the log file even though the process aborted — most loggers flush
         # progressively rather than only at a clean exit, so this can still capture
